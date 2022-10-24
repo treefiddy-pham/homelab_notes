@@ -1,0 +1,64 @@
+# Example /etc/network/interfaces configuration for creating a proxmox private host network.
+
+auto lo
+iface lo inet loopback
+
+
+## Proxmox default VMBR for the attached NIC that is set up during initial install.
+## Does not need to be a bridge.
+## Best to break this and set up a NIC team if multiple NICs are available.
+auto vmbr0
+iface vmbr0 inet static
+        address 192.168.1.201/24
+		gateway 192.168.1.1
+		bridge-ports enp0s25
+		bridge-stp off
+		bridge-fd 0
+		
+## bridge to provide NAT so that VM guests can be private to the host without conflicting with the outside LAN.
+auto vmbr1
+iface vmbr1 inet static
+        address 192.168.2.1/24
+		bridge-ports none
+		bridge-stp off
+		bridge-fd 0
+		# reload iptables rules because they do not persist through reboots.
+		pre-up iptables-restore < /etc/iptables/rules
+		# Enables NAT for the subnet the bridge is connected to.
+		# VMBR address configured above should be inside the subnet for NAT to work.
+		post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+		post-up iptables -t nat -A POSTROUTING -s '192.168.2.0/24' -o vmbr0 -j MASQUERADE
+		post-down iptables -t nat -D POSTROUTING -s '192.168.2.0/24' -o vmbr0 -j MASQUERADE
+#host NAT
+
+### The below is not needed and are entirely up to how you want to manage the network.
+### Instead of having all guests in the same subnet, below are subnets in entirely different class to 
+### have a pfSense virtual appliance handle all the routing with VMBR1 acting as the upstream WAN link.
+
+auto vmbr2
+iface vmbr2 inet static
+        address 10.0.1.0/24
+        bridge-ports none
+        bridge-stop off
+        bridge-fd 0
+#management 10.0.1.0/24		
+
+auto vmbr3
+iface vmbr3 inet static
+        address 10.0.2.0/24
+        bridge-ports none
+        bridge-stop off
+        bridge-fd 0
+		bridge-vlan-aware yes
+		bridge-vids 2-4094
+#dmz 10.0.2.0/24
+
+auto vmbr4
+iface vmbr4 inet static
+        address 10.0.3.0/24
+        bridge-ports none
+        bridge-stop off
+        bridge-fd 0
+		bridge-vlan-aware yes
+		bridge-vids 2-4094
+#monitoring 10.0.3.0/24
